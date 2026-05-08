@@ -1,6 +1,7 @@
 #include "builder.h"
 #include "menusystem.h"
 #include "agent.h"
+#include "cmake.h"
 
 static void show_help() {
     std::cout << "用法: c+++ <files...> [options]\n\n"
@@ -22,7 +23,8 @@ static void show_help() {
               << "  --valgrind               运行时使用 valgrind\n"
               << "  --diff brute.cpp --gen gen.cpp  对拍模式\n\n"
               << "项目:\n"
-              << "  c+++                     读取 c+++.toml 构建整个项目\n"
+              << "  c+++                     读取 c+++.toml 或 CMakeLists.txt\n"
+              << "  c+++ --cmake [target]    从 CMakeLists.txt 构建\n"
               << "  c+++ --new my_project    生成模板项目\n"
               << "  c+++ -s                  交互式配置菜单\n"
               << "  c+++ --show              显示当前配置\n"
@@ -102,11 +104,33 @@ int main(int argc, char* argv[]) {
             }
             return create_project(argv[2]) ? 0 : 1;
         }
+        if (arg1 == "--cmake") {
+            auto proj = parse_cmake(".");
+            if (!proj.found) {
+                Logger::log(Logger::ERROR, "未找到 CMakeLists.txt");
+                return 1;
+            }
+            std::string target = argc >= 3 ? argv[2] : "";
+            Logger::log(Logger::INFO, "CMake 项目: " + proj.project_name);
+            Logger::log(Logger::INFO, "Targets: " + std::to_string(proj.targets.size()) + " 个");
+            return build_cmake(proj, target);
+        }
     }
 
-    if (argc == 1 && !fs::exists("c+++.toml")) {
-        show_help();
-        return 0;
+    // No args: try c+++.toml -> CMakeLists.txt -> show help
+    if (argc == 1) {
+        if (!fs::exists("c+++.toml") && fs::exists("CMakeLists.txt")) {
+            auto proj = parse_cmake(".");
+            if (proj.found && !proj.targets.empty()) {
+                Logger::log(Logger::INFO, "自动检测到 CMakeLists.txt，开始构建...");
+                Logger::log(Logger::INFO, "项目: " + proj.project_name + " | Targets: " + std::to_string(proj.targets.size()));
+                return build_cmake(proj, "");
+            }
+        }
+        if (!fs::exists("c+++.toml")) {
+            show_help();
+            return 0;
+        }
     }
 
     Builder builder(confMgr);
