@@ -74,6 +74,54 @@ static void show_config(ConfigManager& cm) {
     std::cout << "\n";
 }
 
+static int clean_cache(bool json = false) {
+    bool cache_existed = fs::exists(".c+++_cache");
+    std::error_code ec;
+    fs::remove_all(".c+++_cache", ec);
+    fs::remove("compile_commands.json", ec);
+    if (json) {
+        std::cout << "{\"cleaned\":" << (cache_existed ? "true" : "false") << ",\"error\":" << (ec ? "true" : "false") << "}\n";
+    } else if (ec) {
+        Logger::log(Logger::ERROR, "清理失败: " + ec.message());
+        return 1;
+    } else {
+        Logger::log(Logger::SUCCESS, "清理完成");
+    }
+    return ec ? 1 : 0;
+}
+
+static int doctor(ConfigManager& cm) {
+    cm.load();
+    Logger::print_title("Doctor 环境诊断");
+    std::cout << "compiler: " << cm.config.compiler_bin << "\n";
+    std::cout << "standard: " << cm.config.cpp_standard << "\n";
+    std::cout << "compiler_found: " << (command_exists(cm.config.compiler_bin) ? "yes" : "no") << "\n";
+    int rc = 1;
+    std::string ver = run_capture(cm.config.compiler_bin + " --version", &rc);
+    std::istringstream vin(ver);
+    std::string first;
+    std::getline(vin, first);
+    std::cout << "compiler_version: " << first << "\n";
+    std::cout << "git: " << (command_exists("git") ? "yes" : "no") << "\n";
+    std::cout << "clang-format: " << (command_exists("clang-format") ? "yes" : "no") << "\n";
+    std::cout << "clang-tidy: " << (command_exists("clang-tidy") ? "yes" : "no") << "\n";
+    std::cout << "cppcheck: " << (command_exists("cppcheck") ? "yes" : "no") << "\n";
+    std::cout << "valgrind: " << (command_exists("valgrind") ? "yes" : "no") << "\n";
+    std::cout << "cache_dir: " << (fs::exists(".c+++_cache") ? "exists" : "missing") << "\n";
+    fs::path src = "___cpp_doctor_test.cpp";
+    fs::path exe = "___cpp_doctor_test";
+#ifdef _WIN32
+    exe += ".exe";
+#endif
+    std::ofstream(src) << "#include <iostream>\nint main(){std::cout<<\"hello\";return 0;}\n";
+    std::vector<std::string> args = {cm.config.compiler_bin, "-std=" + cm.config.cpp_standard, src.string(), "-o", exe.string()};
+    run_capture(join_args(args), &rc);
+    fs::remove(src);
+    fs::remove(exe);
+    std::cout << "hello_world: " << (rc == 0 ? "ok" : "failed") << "\n";
+    return rc == 0 ? 0 : 1;
+}
+
 int main(int argc, char* argv[]) {
     Logger::setup_console();
     ConfigManager confMgr;
@@ -93,6 +141,8 @@ int main(int argc, char* argv[]) {
             show_config(confMgr);
             return 0;
         }
+        if (arg1 == "doctor") return doctor(confMgr);
+        if (arg1 == "clean") return clean_cache(false);
         if (arg1 == "--agent") {
             AgentMode agent(confMgr);
             return agent.execute(argc, argv);

@@ -3,5 +3,6 @@
 *.dSYM/
 c+++
 c+++_self
+c+++_test
 .c+++_cache/
 ___cpp_plus_plus_test*

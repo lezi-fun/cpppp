@@ -1,0 +1,51 @@
+name: build-and-test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build c+++
+        run: g++ -std=c++17 -o c+++ main.cpp builder.cpp menusystem.cpp agent.cpp cmake.cpp
+
+      - name: Help works
+        run: ./c+++ --help
+
+      - name: Agent doctor works
+        run: ./c+++ --agent doctor
+
+      - name: Regression tests
+        run: bash tests/regression.sh
+
+  windows-build:
+    name: windows-latest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc git
+      - name: Build on Windows
+        shell: msys2 {0}
+        run: g++ -std=c++17 -o c+++.exe main.cpp builder.cpp menusystem.cpp agent.cpp cmake.cpp
+      - name: Help works
+        shell: msys2 {0}
+        run: ./c+++.exe --help
+      - name: Agent doctor works
+        shell: msys2 {0}
+        run: ./c+++.exe --agent doctor

@@ -1,4 +1,6 @@
 #include "builder.h"
+#include <future>
+#include <mutex>
 
 Builder::Builder(ConfigManager& cm) : confMgr(cm) {}
 
@@ -383,14 +385,40 @@ bool Builder::compile_target(BuildTarget& t, fs::path* output_path) {
     int warnings = 0;
 
     auto compile_base = base_compile_args(t.shared);
-    for (const auto& src : t.sources) {
+    if (opts.dry_run) {
+        Logger::print_title("DRY-RUN 构建计划");
+        std::vector<std::string> dry_objects;
+        for (const auto& src : t.sources) {
+            fs::path obj = object_path_for(src);
+            dry_objects.push_back(obj.string());
+            std::vector<std::string> args = compile_base;
+            args.push_back("-c");
+            args.push_back(src);
+            args.push_back("-o");
+            args.push_back(obj.string());
+            std::cout << join_args(args) << "\n";
+        }
+        std::vector<std::string> link = {confMgr.config.compiler_bin};
+        for (const auto& o : dry_objects) link.push_back(o);
+        link.push_back("-o");
+        link.push_back(out.string());
+        auto largs = link_args(t.shared);
+        link.insert(link.end(), largs.begin(), largs.end());
+        std::cout << join_args(link) << "\n";
+        Logger::log(Logger::HINT, "DRY-RUN: 未执行任何编译/链接命令");
+        return true;
+    }
+    struct CompileResult { bool ok; std::string src; std::string obj; std::string sig; std::string raw; int warnings; };
+    std::mutex cache_mutex;
+    auto compile_one = [&](const std::string& src) -> CompileResult {
         fs::path obj = object_path_for(src);
-        objects.push_back(obj.string());
         std::string sig = signature_for(src, compile_base);
         std::string key = obj.string();
-        if (fs::exists(obj) && cache_state[key] == sig) {
-            Logger::log(Logger::LOG_DEBUG, "增量跳过: " + src);
-            continue;
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex);
+            if (fs::exists(obj) && cache_state[key] == sig) {
+                return {true, src, obj.string(), sig, "", 0};
+            }
         }
         fs::create_directories(obj.parent_path());
         std::vector<std::string> args = compile_base;
@@ -398,18 +426,54 @@ bool Builder::compile_target(BuildTarget& t, fs::path* output_path) {
         args.push_back(src);
         args.push_back("-o");
         args.push_back(obj.string());
-        Logger::log(Logger::INFO, "编译: " + src);
         int rc = 1;
         std::string raw = run_capture(join_args(args), &rc);
-        if (!raw.empty()) std::cout << colorize_compiler_output(raw);
-        warnings += last_warning_count;
-        if (rc != 0) {
-            error_navigation(raw);
+        int wc = 0;
+        std::istringstream rin(raw);
+        std::string line;
+        while (std::getline(rin, line)) {
+            if (line.find(" warning:") != std::string::npos || line.find(": warning:") != std::string::npos) ++wc;
+        }
+        return {rc == 0, src, obj.string(), sig, raw, wc};
+    };
+
+    for (const auto& src : t.sources) objects.push_back(object_path_for(src).string());
+
+    std::vector<CompileResult> results;
+    if (opts.jobs <= 1 || t.sources.size() <= 1) {
+        for (const auto& src : t.sources) {
+            Logger::log(Logger::INFO, "编译: " + src);
+            results.push_back(compile_one(src));
+        }
+    } else {
+        Logger::log(Logger::INFO, "并行编译: -j " + std::to_string(opts.jobs));
+        std::vector<std::future<CompileResult>> futures;
+        size_t next = 0;
+        while (next < t.sources.size() || !futures.empty()) {
+            while (next < t.sources.size() && futures.size() < static_cast<size_t>(opts.jobs)) {
+                std::string src = t.sources[next++];
+                Logger::log(Logger::INFO, "编译: " + src);
+                futures.push_back(std::async(std::launch::async, compile_one, src));
+            }
+            results.push_back(futures.front().get());
+            futures.erase(futures.begin());
+        }
+    }
+
+    for (const auto& r : results) {
+        if (r.raw.empty() && r.ok) {
+            Logger::log(Logger::LOG_DEBUG, "增量跳过: " + r.src);
+        }
+        if (!r.raw.empty()) std::cout << colorize_compiler_output(r.raw);
+        warnings += r.warnings;
+        if (!r.ok) {
+            error_navigation(r.raw);
             auto end = std::chrono::steady_clock::now();
             print_stats(false, std::chrono::duration<double>(end - start).count(), out, warnings);
             return false;
         }
-        cache_state[key] = sig;
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        cache_state[r.obj] = r.sig;
     }
 
     std::vector<std::string> link = {confMgr.config.compiler_bin};
@@ -563,6 +627,9 @@ bool Builder::parse_args(int argc, char* argv[]) {
         else if (arg == "--time") opts.measure_time = true;
         else if (arg == "--bench") opts.bench = std::max(1, std::atoi(need_value("--bench").c_str()));
         else if (arg == "--valgrind") opts.valgrind = true;
+        else if (arg == "--dry-run") opts.dry_run = true;
+        else if (arg == "-j" || arg == "--jobs") opts.jobs = std::max(1, std::atoi(need_value(arg).c_str()));
+        else if (starts_with(arg, "-j") && arg.size() > 2) opts.jobs = std::max(1, std::atoi(arg.substr(2).c_str()));
         else if (arg == "--diff") opts.diff_source = need_value("--diff");
         else if (arg == "--gen") opts.gen_source = need_value("--gen");
         else if (arg == "--export-compile-commands") opts.export_compile_commands = true;

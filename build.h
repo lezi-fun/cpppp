@@ -16,7 +16,9 @@ struct BuildOptions {
     bool export_compile_commands = false;
     bool measure_time = false;
     bool valgrind = false;
+    bool dry_run = false;
     int bench = 1;
+    int jobs = 1;
     std::string profile;
     std::string pch;
     std::string diff_source;

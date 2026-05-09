@@ -21,6 +21,8 @@ c+++ main.cpp utils.cpp -o app -r
 - **代码分析** — `--analyze` 调用 clang-tidy/cppcheck，`--format` 调用 clang-format
 - **compile_commands.json** — `--export-compile-commands` 一键导出给 LSP
 - **CMake 兼容** — 读取 `CMakeLists.txt` 自动提取源文件、编译选项、include 路径、链接库并构建
+- **并行编译** — `-j N` 并发编译多个源文件
+- **可观测性** — `--dry-run` 查看构建计划，`doctor` 诊断环境，`clean` 清理缓存
 - **模板项目** — `--new my_project` 生成完整项目骨架
 
 ## 快速开始
@@ -75,6 +77,10 @@ c+++ <files...> [options]
 | `--time` | 显示运行耗时 |
 | `--bench N` | 运行/对拍 N 次 |
 | `--valgrind` | 运行时使用 valgrind |
+| `--dry-run` | 只打印编译/链接命令，不执行 |
+| `-j N`, `--jobs N` | 并行编译 N 个源文件 |
+| `doctor` | 环境诊断 |
+| `clean` | 清理 `.c+++_cache` 和 compile_commands.json |
 | `--diff <brute> --gen <gen>` | 对拍模式 |
 | `--shared` | 编译动态库 |
 | `--target` | 分隔多 target |

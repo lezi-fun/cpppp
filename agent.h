@@ -18,6 +18,8 @@ class AgentMode {
     void cmd_config_save();
     void cmd_config_load();
     void cmd_scan();
+    void cmd_doctor();
+    void cmd_clean();
     void cmd_build(const std::vector<std::string>& args);
     void cmd_run(const std::vector<std::string>& args);
 

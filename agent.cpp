@@ -238,6 +238,46 @@ void AgentMode::cmd_build(const std::vector<std::string>& args) {
     builder.execute();
 }
 
+void AgentMode::cmd_clean() {
+    bool existed = fs::exists(".c+++_cache");
+    std::error_code ec;
+    fs::remove_all(".c+++_cache", ec);
+    fs::remove("compile_commands.json", ec);
+    std::cout << "{\"cleaned\":" << (existed ? "true" : "false") << ",\"error\":" << (ec ? "true" : "false") << "}\n";
+}
+
+void AgentMode::cmd_doctor() {
+    cm.load();
+    int rc = 1;
+    std::string ver = run_capture(cm.config.compiler_bin + " --version", &rc);
+    std::istringstream vin(ver);
+    std::string first;
+    std::getline(vin, first);
+    fs::path src = "___cpp_doctor_test.cpp";
+    fs::path exe = "___cpp_doctor_test";
+#ifdef _WIN32
+    exe += ".exe";
+#endif
+    std::ofstream(src) << "#include <iostream>\nint main(){std::cout<<\"hello\";return 0;}\n";
+    std::vector<std::string> args = {cm.config.compiler_bin, "-std=" + cm.config.cpp_standard, src.string(), "-o", exe.string()};
+    run_capture(join_args(args), &rc);
+    fs::remove(src);
+    fs::remove(exe);
+    std::cout << "{\n";
+    std::cout << "  \"compiler\": " << json_str(cm.config.compiler_bin) << ",\n";
+    std::cout << "  \"standard\": " << json_str(cm.config.cpp_standard) << ",\n";
+    std::cout << "  \"compiler_found\": " << json_bool(command_exists(cm.config.compiler_bin)) << ",\n";
+    std::cout << "  \"compiler_version\": " << json_str(first) << ",\n";
+    std::cout << "  \"git\": " << json_bool(command_exists("git")) << ",\n";
+    std::cout << "  \"clang_format\": " << json_bool(command_exists("clang-format")) << ",\n";
+    std::cout << "  \"clang_tidy\": " << json_bool(command_exists("clang-tidy")) << ",\n";
+    std::cout << "  \"cppcheck\": " << json_bool(command_exists("cppcheck")) << ",\n";
+    std::cout << "  \"valgrind\": " << json_bool(command_exists("valgrind")) << ",\n";
+    std::cout << "  \"cache_dir\": " << json_bool(fs::exists(".c+++_cache")) << ",\n";
+    std::cout << "  \"hello_world\": " << json_bool(rc == 0) << "\n";
+    std::cout << "}\n";
+}
+
 void AgentMode::cmd_run(const std::vector<std::string>& args) {
     std::vector<char*> argv_storage;
     argv_storage.push_back(const_cast<char*>("c+++"));
@@ -269,8 +309,10 @@ AI Agent 非交互模式 — 所有操作用位置参数，输出 JSON。
   --agent config save                    保存配置到文件
   --agent config load                    从文件重新加载
 
-编译器扫描:
+编译器扫描/诊断:
   --agent scan                           扫描 PATH 中的编译器 (JSON)
+  --agent doctor                         环境诊断 (JSON)
+  --agent clean                          清理缓存 (JSON)
 
 构建:
   --agent build <files...> [options]     非交互构建
@@ -313,6 +355,8 @@ int AgentMode::execute(int argc, char* argv[]) {
     }
 
     if (cmd == "scan") { cmd_scan(); return 0; }
+    if (cmd == "doctor") { cmd_doctor(); return 0; }
+    if (cmd == "clean") { cmd_clean(); return 0; }
     if (cmd == "build") { cmd_build(args); return 0; }
     if (cmd == "run") { cmd_run(args); return 0; }
 
