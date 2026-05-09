@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make
+
+      - name: Check compiler version
+        run: g++ --version
+
+      - name: Build c+++ with g++ -std=c++17
+        run: g++ -std=c++17 -O2 -Wall -Wextra -o c+++ *.cpp
+
+      - name: smoke — --help
+        run: ./c+++ --help
+
+      - name: smoke — --show (no config, should show defaults)
+        run: ./c+++ --show
+
+      - name: smoke — --new project generation
+        run: |
+          mkdir -p /tmp/cpppp-smoke
+          cd /tmp/cpppp-smoke
+          $GITHUB_WORKSPACE/c+++ --new test_project
+          test -f test_project/src/main.cpp   || { echo "FAIL: main.cpp missing"; exit 1; }
+          test -f test_project/c+++.toml      || { echo "FAIL: c+++.toml missing"; exit 1; }
+          echo "[PASS] --new creates valid project skeleton"
+
+      - name: smoke — compile a trivial program
+        run: |
+          mkdir -p /tmp/cpppp-smoke-build
+          cat > /tmp/cpppp-smoke-build/hello.cpp << 'EOF'
+          #include <iostream>
+          int main() {
+              std::cout << "Hello from c+++ built program" << std::endl;
+              return 0;
+          }
+          EOF
+          g++ -std=c++17 -O2 -Wall -Wextra -o /tmp/cpppp-smoke-build/hello /tmp/cpppp-smoke-build/hello.cpp
+          /tmp/cpppp-smoke-build/hello | grep -q "Hello from c+++" && echo "[PASS] compiled program runs correctly"
+
+      - name: smoke — compile a 2-file program (simulate multi-file build)
+        run: |
+          mkdir -p /tmp/cpppp-smoke-multi
+          cat > /tmp/cpppp-smoke-multi/greet.h << 'EOF'
+          #pragma once
+          #include <string>
+          std::string greet(const std::string& name);
+          EOF
+          cat > /tmp/cpppp-smoke-multi/greet.cpp << 'EOF'
+          #include "greet.h"
+          std::string greet(const std::string& name) {
+              return "Hello, " + name + "!";
+          }
+          EOF
+          cat > /tmp/cpppp-smoke-multi/main.cpp << 'EOF'
+          #include "greet.h"
+          #include <iostream>
+          int main() {
+              std::cout << greet("c+++") << std::endl;
+              return 0;
+          }
+          EOF
+          g++ -std=c++17 -O2 -Wall -Wextra -I/tmp/cpppp-smoke-multi \
+              /tmp/cpppp-smoke-multi/main.cpp /tmp/cpppp-smoke-multi/greet.cpp \
+              -o /tmp/cpppp-smoke-multi/app
+          /tmp/cpppp-smoke-multi/app | grep -q "Hello, c+++!" && echo "[PASS] multi-file build works"
